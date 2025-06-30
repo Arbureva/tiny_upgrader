@@ -50,14 +50,5 @@ class UpdateInfo {
   final String currentVersion;
   final VersionInfo? latestVersion;
 
-  /// 新增：文件在本地的保存路径
-  String? filePath;
-  bool hasUpdate = false;
-
-  UpdateInfo({
-    required this.currentVersion,
-    this.latestVersion,
-    this.filePath,
-    this.hasUpdate = false,
-  });
+  UpdateInfo({required this.currentVersion, this.latestVersion});
 }

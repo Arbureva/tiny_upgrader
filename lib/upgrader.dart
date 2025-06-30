@@ -75,6 +75,7 @@ class TinyUpgrader {
   // 更新信息与状态
   UpdateInfo? _updateInfo;
   String? _savePath; // 安装包保存路径
+  bool _hasUpdate = false;
 
   // 使用 ValueNotifier 来驱动UI更新，更加灵活
   final ValueNotifier<DownloadStatus> statusNotifier = ValueNotifier(DownloadStatus.none);
@@ -83,7 +84,6 @@ class TinyUpgrader {
   // ========== 可配置的回调函数 ==========
   static UpdateApiParser _parser = _defaultParser;
   static ErrorHandler? _errorHandler;
-  static UpdateAvailableCallback? _onUpdateAvailable;
   static UpdateDialogBuilder? _dialogBuilder;
 
   /// 初始化配置
@@ -100,7 +100,6 @@ class TinyUpgrader {
     instance._isDebugging = isDebug;
     if (parser != null) _parser = parser;
     if (errorHandler != null) _errorHandler = errorHandler;
-    if (onUpdateAvailable != null) _onUpdateAvailable = onUpdateAvailable;
     if (dialogBuilder != null) {
       _dialogBuilder = dialogBuilder;
     } else {
@@ -151,6 +150,7 @@ class TinyUpgrader {
   Future<void> check(
     BuildContext context, {
     required String url,
+    UpdateAvailableCallback? onUpdateAvailable,
     Map<String, dynamic>? params,
   }) async {
     _log('开始检查更新...');
@@ -168,22 +168,22 @@ class TinyUpgrader {
       _updateInfo = UpdateInfo(currentVersion: currentVersion, latestVersion: newVersionInfo);
 
       if (newVersionInfo.version != currentVersion) {
-        _updateInfo!.hasUpdate = true;
+        _hasUpdate = true;
       } else {
         if (newVersionInfo.buildVersion != packageInfo.buildNumber) {
-          _updateInfo!.hasUpdate = true;
+          _hasUpdate = true;
         }
       }
 
       // 简单比较版本号，可根据需要替换为更复杂的比较逻辑
-      if (_updateInfo!.hasUpdate) {
+      if (_hasUpdate) {
         _log('发现新版本: ${_updateInfo!.latestVersion!.version}');
         statusNotifier.value = DownloadStatus.none; // 重置状态
         progressNotifier.value = 0.0; // 重置进度
 
         // 优先使用回调
-        if (_onUpdateAvailable != null) {
-          _onUpdateAvailable!(context, _updateInfo!);
+        if (onUpdateAvailable != null) {
+          onUpdateAvailable(context, _updateInfo!);
         }
         // 若回调为空，则使用弹出框
         else if (_dialogBuilder != null) {

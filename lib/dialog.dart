@@ -83,25 +83,39 @@ class _MyUpdateDialogState extends State<MyUpdateDialog> {
                     break;
                 }
               },
-              child: Text(_getButtonText(status)),
+              child: Text(getButtonText(status)),
             );
           },
         ),
       ],
     );
   }
+}
 
-  String _getButtonText(DownloadStatus status) {
-    switch (status) {
-      case DownloadStatus.none:
-      case DownloadStatus.error:
-        return '立即更新';
-      case DownloadStatus.downloading:
-        return '暂停';
-      case DownloadStatus.paused:
-        return '继续下载';
-      case DownloadStatus.finished:
-        return '立即安装';
-    }
+String getButtonText(DownloadStatus status) {
+  switch (status) {
+    case DownloadStatus.none:
+    case DownloadStatus.error:
+      return '立即更新';
+    case DownloadStatus.downloading:
+      return '暂停';
+    case DownloadStatus.paused:
+      return '继续下载';
+    case DownloadStatus.finished:
+      return '立即安装';
+  }
+}
+
+Icon getButtonIcon(DownloadStatus status) {
+  switch (status) {
+    case DownloadStatus.none:
+    case DownloadStatus.error:
+      return const Icon(Icons.download);
+    case DownloadStatus.downloading:
+      return const Icon(Icons.pause);
+    case DownloadStatus.paused:
+      return const Icon(Icons.play_arrow);
+    case DownloadStatus.finished:
+      return const Icon(Icons.update);
   }
 }
