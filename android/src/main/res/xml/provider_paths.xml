@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!--
+      这个路径允许 FileProvider 共享应用临时目录中的文件。
+      这与你在 Dart 代码中 getTemporaryDirectory() 获取的目录相对应。
+      这是一种安全且推荐的做法，只暴露必要的目录。
+    -->
+    <cache-path name="apk_files" path="." />
+
+    <!--
+      如果你将文件保存在其他位置，可以添加相应的路径：
+      <files-path name="internal_files" path="." />
+      <external-path name="external_files" path="." />
+      <external-cache-path name="external_cache" path="." />
+    -->
+</paths>
