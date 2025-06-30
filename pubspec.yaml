@@ -1,11 +1,11 @@
 name: tiny_upgrader
-description: "A new Flutter plugin project."
+description: "A Flutter App upgrader plugin."
 version: 0.0.1
 homepage:
 
 environment:
   sdk: ^3.8.1
-  flutter: '>=3.3.0'
+  flutter: ">=3.3.0"
 
 dependencies:
   crypto: ^3.0.6
