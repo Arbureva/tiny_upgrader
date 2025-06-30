@@ -97,6 +97,8 @@ class TinyUpgrader {
     UpdateAvailableCallback? onUpdateAvailable,
     UpdateDialogBuilder? dialogBuilder,
   }) {
+    if (!Platform.isAndroid) assert(false, 'Only Android is supported');
+
     instance._isDebugging = isDebug;
     if (parser != null) _parser = parser;
     if (errorHandler != null) _errorHandler = errorHandler;
@@ -139,6 +141,8 @@ class TinyUpgrader {
   }
 
   Future<String?> getPlatformVersion() async {
+    if (!Platform.isAndroid) assert(false, 'Only Android is supported');
+
     return TinyUpgraderPlatform.instance.getPlatformVersion();
   }
 
@@ -153,6 +157,8 @@ class TinyUpgrader {
     UpdateAvailableCallback? onUpdateAvailable,
     Map<String, dynamic>? params,
   }) async {
+    if (!Platform.isAndroid) assert(false, 'Only Android is supported');
+
     _log('开始检查更新...');
     try {
       final response = await _dio.get(url, queryParameters: params);
@@ -206,6 +212,8 @@ class TinyUpgrader {
 
   /// 开始或继续下载
   Future<void> startDownload() async {
+    if (!Platform.isAndroid) assert(false, 'Only Android is supported');
+
     if (_updateInfo == null || _updateInfo!.latestVersion == null) {
       _log('错误: 更新信息或下载链接为空。');
       statusNotifier.value = DownloadStatus.error;
@@ -279,6 +287,8 @@ class TinyUpgrader {
 
   /// 暂停下载
   void pauseDownload() {
+    if (!Platform.isAndroid) assert(false, 'Only Android is supported');
+
     if (statusNotifier.value == DownloadStatus.downloading) {
       _cancelToken?.cancel();
     }
@@ -286,6 +296,8 @@ class TinyUpgrader {
 
   /// 调用平台接口安装APK (仅限Android)
   Future<void> install() async {
+    if (!Platform.isAndroid) assert(false, 'Only Android is supported');
+
     if (statusNotifier.value != DownloadStatus.finished || _savePath == null) {
       _log('错误: 文件未下载完成，无法安装。');
       return;
@@ -303,6 +315,8 @@ class TinyUpgrader {
 
   /// 下载完成后的处理
   Future<void> _onDownloadCompleted() async {
+    if (!Platform.isAndroid) assert(false, 'Only Android is supported');
+
     _log('下载完成，路径: $_savePath');
 
     final latestVersion = _updateInfo?.latestVersion;

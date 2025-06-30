@@ -1,3 +1,7 @@
+# 1.0.1
+
+- restriction systems other than android
+
 # 1.0.0
 
 - fixs some bugs
