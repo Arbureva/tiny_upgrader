@@ -1,6 +1,6 @@
 name: tiny_upgrader
 description: "A Flutter App upgrader plugin."
-version: 0.0.1
+version: 0.0.2
 homepage: https://github.com/Arbureva/tiny_upgrader
 
 environment:
