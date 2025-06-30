@@ -1,8 +1,13 @@
-## 0.0.1
+# 1.0.0
 
-- TODO: complated basic functions
+- fixs some bugs
+- updated the description to make it more helpful
 
 ## 0.0.2
 
-- TODO: updated callback function
-- TODO: add enum Widgets
+- updated callback function
+- add enum Widgets
+
+## 0.0.1
+
+- complated basic functions

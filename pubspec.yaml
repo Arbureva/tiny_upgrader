@@ -1,6 +1,6 @@
 name: tiny_upgrader
-description: "A Flutter App upgrader plugin."
-version: 0.0.2
+description: "A Flutter app upgrade plugin. You can use it to upgrade your app. Supports custom upgrade dialogs or pages. Provides multiple upgrade methods."
+version: 1.0.0
 homepage: https://github.com/Arbureva/tiny_upgrader
 
 environment:
