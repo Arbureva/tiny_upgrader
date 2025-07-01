@@ -1,3 +1,8 @@
+# 1.0.2
+
+- add some logs
+- add shouldUpdate function
+
 # 1.0.1
 
 - restriction systems other than android

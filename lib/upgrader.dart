@@ -155,6 +155,7 @@ class TinyUpgrader {
     BuildContext context, {
     required String url,
     UpdateAvailableCallback? onUpdateAvailable,
+    bool Function(VersionInfo, PackageInfo)? shouldUpdate,
     Map<String, dynamic>? params,
   }) async {
     if (!Platform.isAndroid) assert(false, 'Only Android is supported');
@@ -170,20 +171,24 @@ class TinyUpgrader {
       final newVersionInfo = await _parser(response.data);
       final packageInfo = await PackageInfo.fromPlatform();
       final currentVersion = packageInfo.version;
-      _log('获得旧版本信息 $currentVersion');
+      _log('获得旧版本信息 ${currentVersion}+${packageInfo.buildNumber}');
       _updateInfo = UpdateInfo(currentVersion: currentVersion, latestVersion: newVersionInfo);
 
-      if (newVersionInfo.version != currentVersion) {
-        _hasUpdate = true;
+      if (shouldUpdate != null) {
+        _hasUpdate = shouldUpdate(newVersionInfo, packageInfo);
       } else {
-        if (newVersionInfo.buildVersion != packageInfo.buildNumber) {
+        if (newVersionInfo.version != currentVersion) {
           _hasUpdate = true;
+        } else {
+          if (newVersionInfo.buildVersion != packageInfo.buildNumber) {
+            _hasUpdate = true;
+          }
         }
       }
 
       // 简单比较版本号，可根据需要替换为更复杂的比较逻辑
       if (_hasUpdate) {
-        _log('发现新版本: ${_updateInfo!.latestVersion!.version}');
+        _log('发现新版本: ${newVersionInfo.version}+${newVersionInfo.buildVersion}');
         statusNotifier.value = DownloadStatus.none; // 重置状态
         progressNotifier.value = 0.0; // 重置进度
 
