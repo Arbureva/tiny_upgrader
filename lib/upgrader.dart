@@ -181,7 +181,7 @@ class TinyUpgrader {
           _hasUpdate = true;
           _log('版本号不一致，触发更新');
         } else {
-          if (newVersionInfo.buildVersion != packageInfo.buildNumber) {
+          if (newVersionInfo.buildVersion != packageInfo.buildNumber.toString()) {
             _hasUpdate = true;
             _log('构建号不一致，触发更新');
           }
