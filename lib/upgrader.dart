@@ -262,6 +262,7 @@ class TinyUpgrader {
         latestVersion.downloadUrl,
         _savePath,
         cancelToken: _cancelToken,
+        fileAccessMode: FileAccessMode.append,
         onReceiveProgress: (received, total) {
           // 当前已下载的总字节数
           int currentTotal = existingLength + received;
