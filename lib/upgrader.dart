@@ -263,16 +263,20 @@ class TinyUpgrader {
         _savePath,
         cancelToken: _cancelToken,
         onReceiveProgress: (received, total) {
-          // total 可能为-1，如果服务器未返回Content-Length
-          final int totalSize = total > 0 ? total : (latestVersion.apkSize);
+          // 当前已下载的总字节数
+          int currentTotal = existingLength + received;
+
+          // 使用已知的文件大小
+          int totalSize = latestVersion.apkSize;
+
           if (totalSize > 0) {
-            progressNotifier.value = (existingLength + received) / (existingLength + totalSize);
+            progressNotifier.value = currentTotal / totalSize;
           }
-          _log('下载进度: ${progressNotifier.value.toStringAsFixed(2)}');
+
+          _log('下载进度: ${(progressNotifier.value * 100).toStringAsFixed(1)}%');
         },
-        // 设置 Range 请求头以实现断点续传
-        options: Options(headers: {'range': 'bytes=$existingLength-'}),
-        deleteOnError: true,
+        options: Options(headers: {'Range': 'bytes=$existingLength-'}),
+        deleteOnError: false, // 重要：保留部分下载的文件
       );
 
       await _onDownloadCompleted();
@@ -332,10 +336,11 @@ class TinyUpgrader {
       return;
     }
 
+    final file = File(_savePath!);
+
     // 如果提供了MD5，则进行校验
     if (latestVersion.apkHashCode.isNotEmpty) {
       _log('正在校验文件 MD5...');
-      final file = File(_savePath!);
       final fileMd5 = md5.convert(await file.readAsBytes()).toString();
       _log('文件MD5: $fileMd5, 期望MD5: ${latestVersion.apkHashCode.toLowerCase()}');
       if (fileMd5 == latestVersion.apkHashCode.toLowerCase()) {
@@ -350,9 +355,10 @@ class TinyUpgrader {
         _errorHandler?.call('MD5_VALIDATION_FAILED');
       }
     } else {
-      _log('未提供 MD5，跳过校验。');
-      statusNotifier.value = DownloadStatus.finished;
-      progressNotifier.value = 1.0;
+      _log('未提供 MD5 校验值');
+      await file.delete(); // 删除未提供MD5校验值的文件
+      statusNotifier.value = DownloadStatus.error;
+      progressNotifier.value = 0.0;
     }
   }
 
