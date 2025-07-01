@@ -1,3 +1,7 @@
+# 1.0.3
+
+- add more logs
+
 # 1.0.2
 
 - add some logs
