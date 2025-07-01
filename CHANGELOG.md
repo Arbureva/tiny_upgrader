@@ -1,3 +1,8 @@
+# 1.0.4
+
+- fixs some bugs
+- set the download file write mothod to append write
+
 # 1.0.3
 
 - add more logs
