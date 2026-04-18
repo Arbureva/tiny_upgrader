@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:tiny_upgrader/upgrader.dart';
 import 'package:tiny_upgrader/update_info.dart';
 
-class MyUpdateDialog extends StatefulWidget {
+class MyUpdateDialog extends StatelessWidget {
   final UpdateInfo updateInfo;
   final ValueNotifier<DownloadStatus> statusNotifier;
   final ValueNotifier<double> progressNotifier;
@@ -15,13 +15,9 @@ class MyUpdateDialog extends StatefulWidget {
   });
 
   @override
-  State<MyUpdateDialog> createState() => _MyUpdateDialogState();
-}
-
-class _MyUpdateDialogState extends State<MyUpdateDialog> {
-  @override
   Widget build(BuildContext context) {
-    final latestVersion = widget.updateInfo.latestVersion!;
+    final latestVersion = updateInfo.latestVersion!;
+    final isForced = latestVersion.updateStrategy == UpdateStrategy.forced;
 
     return AlertDialog(
       title: const Text('发现新版本'),
@@ -29,29 +25,43 @@ class _MyUpdateDialogState extends State<MyUpdateDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text("最新版本: ${latestVersion.version}"),
+          Text('最新版本: ${latestVersion.version}+${latestVersion.buildVersion}'),
           const SizedBox(height: 8),
-          Text("${latestVersion.modifyContent}"),
+          Text(latestVersion.modifyContent),
           const SizedBox(height: 16),
-          // 使用 ValueListenableBuilder 来监听并根据状态和进度构建UI
           ValueListenableBuilder<DownloadStatus>(
-            valueListenable: widget.statusNotifier,
-            builder: (context, status, child) {
-              // 根据不同状态显示不同内容
+            valueListenable: statusNotifier,
+            builder: (context, status, _) {
               switch (status) {
                 case DownloadStatus.downloading:
                 case DownloadStatus.paused:
                   return ValueListenableBuilder<double>(
-                    valueListenable: widget.progressNotifier,
-                    builder: (context, progress, child) {
-                      return LinearProgressIndicator(value: progress);
+                    valueListenable: progressNotifier,
+                    builder: (context, progress, _) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          LinearProgressIndicator(value: progress),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${(progress * 100).toStringAsFixed(1)}%',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ],
+                      );
                     },
                   );
                 case DownloadStatus.finished:
-                  return const Text('下载完成，可以安装了！', style: TextStyle(color: Colors.green));
+                  return const Text(
+                    '下载完成，可以安装了！',
+                    style: TextStyle(color: Colors.green),
+                  );
                 case DownloadStatus.error:
-                  return const Text('下载失败，请重试', style: TextStyle(color: Colors.red));
-                default: // none
+                  return const Text(
+                    '下载失败，请重试',
+                    style: TextStyle(color: Colors.red),
+                  );
+                case DownloadStatus.none:
                   return const SizedBox.shrink();
               }
             },
@@ -59,63 +69,53 @@ class _MyUpdateDialogState extends State<MyUpdateDialog> {
         ],
       ),
       actions: [
-        if (latestVersion.updateStatus != UpdateStatus.mustUpToDate)
-          TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('以后再说')),
-        // 使用 ValueListenableBuilder 来构建操作按钮
+        if (!isForced)
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('以后再说'),
+          ),
         ValueListenableBuilder<DownloadStatus>(
-          valueListenable: widget.statusNotifier,
-          builder: (context, status, child) {
+          valueListenable: statusNotifier,
+          builder: (context, status, _) {
             return TextButton(
-              onPressed: () {
-                switch (status) {
-                  case DownloadStatus.none:
-                  case DownloadStatus.error:
-                    TinyUpgrader.instance.startDownload();
-                    break;
-                  case DownloadStatus.downloading:
-                    TinyUpgrader.instance.pauseDownload();
-                    break;
-                  case DownloadStatus.paused:
-                    TinyUpgrader.instance.startDownload(); // 恢复下载
-                    break;
-                  case DownloadStatus.finished:
-                    TinyUpgrader.instance.install();
-                    break;
-                }
-              },
-              child: Text(getButtonText(status)),
+              onPressed: () => _onActionPressed(status),
+              child: Text(_getButtonText(status)),
             );
           },
         ),
       ],
     );
   }
-}
 
-String getButtonText(DownloadStatus status) {
-  switch (status) {
-    case DownloadStatus.none:
-    case DownloadStatus.error:
-      return '立即更新';
-    case DownloadStatus.downloading:
-      return '暂停';
-    case DownloadStatus.paused:
-      return '继续下载';
-    case DownloadStatus.finished:
-      return '立即安装';
+  void _onActionPressed(DownloadStatus status) {
+    switch (status) {
+      case DownloadStatus.none:
+      case DownloadStatus.error:
+        TinyUpgrader.instance.startDownload();
+        break;
+      case DownloadStatus.downloading:
+        TinyUpgrader.instance.pauseDownload();
+        break;
+      case DownloadStatus.paused:
+        TinyUpgrader.instance.startDownload();
+        break;
+      case DownloadStatus.finished:
+        TinyUpgrader.instance.install();
+        break;
+    }
   }
-}
 
-Icon getButtonIcon(DownloadStatus status) {
-  switch (status) {
-    case DownloadStatus.none:
-    case DownloadStatus.error:
-      return const Icon(Icons.download);
-    case DownloadStatus.downloading:
-      return const Icon(Icons.pause);
-    case DownloadStatus.paused:
-      return const Icon(Icons.play_arrow);
-    case DownloadStatus.finished:
-      return const Icon(Icons.update);
+  String _getButtonText(DownloadStatus status) {
+    switch (status) {
+      case DownloadStatus.none:
+      case DownloadStatus.error:
+        return '立即更新';
+      case DownloadStatus.downloading:
+        return '暂停';
+      case DownloadStatus.paused:
+        return '继续下载';
+      case DownloadStatus.finished:
+        return '立即安装';
+    }
   }
 }

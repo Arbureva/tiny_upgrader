@@ -1,3 +1,8 @@
+# 1.0.5
+- fixs some bugs
+- if server return http 416 code. it will be remove local apk
+- local apk add build number. version format be like 'x.x.x-xx.apk'
+
 # 1.0.4
 
 - fixs some bugs
