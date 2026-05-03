@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:tiny_upgrader/dialog.dart';
+import 'package:tiny_upgrader/forced_update_page.dart';
+import 'package:tiny_upgrader/oss_config.dart';
+import 'package:tiny_upgrader/oss_signer.dart';
 import 'package:tiny_upgrader/upgrader_platform_interface.dart';
 import 'package:tiny_upgrader/update_info.dart';
 
@@ -50,8 +53,22 @@ typedef ErrorHandler = void Function(dynamic error);
 /// 当检测到有新版本时的回调
 typedef UpdateAvailableCallback = void Function(BuildContext context, UpdateInfo updateInfo);
 
-/// 自定义更新对话框构建器
+/// 自定义更新对话框构建器（可选 / 推荐更新时展示）
 typedef UpdateDialogBuilder =
+    Widget Function(
+      BuildContext context,
+      UpdateInfo updateInfo,
+      ValueNotifier<DownloadStatus> statusNotifier,
+      ValueNotifier<double> progressNotifier,
+    );
+
+/// 强制更新拦截页构建器
+///
+/// 当 [UpdateStrategy.forced] 时，会 push 一个全屏路由来阻止用户使用 App。
+/// 页面不可通过返回键或手势关闭，直到 APK 下载并安装完成。
+///
+/// 默认使用 [DefaultForcedUpdatePage]（Material Design 风格）。
+typedef ForcedUpdatePageBuilder =
     Widget Function(
       BuildContext context,
       UpdateInfo updateInfo,
@@ -74,6 +91,8 @@ class TinyUpgrader {
   UpdateApiParser _parser = _defaultParser;
   ErrorHandler? _errorHandler;
   UpdateDialogBuilder? _dialogBuilder;
+  ForcedUpdatePageBuilder? _forcedUpdatePageBuilder;
+  OssConfig? _ossConfig;
 
   // ========== 运行时状态 ==========
   CancelToken? _cancelToken;
@@ -93,11 +112,15 @@ class TinyUpgrader {
     UpdateApiParser? parser,
     ErrorHandler? errorHandler,
     UpdateDialogBuilder? dialogBuilder,
+    ForcedUpdatePageBuilder? forcedUpdatePageBuilder,
+    OssConfig? ossConfig,
   }) {
     final inst = instance;
     inst._isDebugging = isDebug;
     if (parser != null) inst._parser = parser;
     inst._errorHandler = errorHandler;
+    inst._forcedUpdatePageBuilder = forcedUpdatePageBuilder;
+    inst._ossConfig = ossConfig;
 
     inst._dialogBuilder =
         dialogBuilder ??
@@ -198,17 +221,32 @@ class TinyUpgrader {
         return;
       }
 
-      // 使用弹窗
-      if (_dialogBuilder != null) {
-        if (!context.mounted) return;
-        final strategy = newVersionInfo.updateStrategy;
+      // 强制更新 → 全屏拦截页；可选/推荐 → Dialog
+      if (!context.mounted) return;
+      final strategy = newVersionInfo.updateStrategy;
+
+      if (strategy == UpdateStrategy.forced) {
+        final pageBuilder = _forcedUpdatePageBuilder ??
+            (ctx, info, st, pr) => DefaultForcedUpdatePage(
+                  updateInfo: info,
+                  statusNotifier: st,
+                  progressNotifier: pr,
+                );
+
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (ctx) => PopScope(
+              canPop: false,
+              child: pageBuilder(ctx, _updateInfo!, statusNotifier, progressNotifier),
+            ),
+          ),
+        );
+      } else if (_dialogBuilder != null) {
         showDialog(
           context: context,
-          // 强制更新时不允许点外部关闭
-          barrierDismissible: strategy != UpdateStrategy.forced,
+          barrierDismissible: true,
           builder: (ctx) => PopScope(
-            // 强制更新时禁用返回键
-            canPop: strategy != UpdateStrategy.forced,
+            canPop: true,
             child: _dialogBuilder!(ctx, _updateInfo!, statusNotifier, progressNotifier),
           ),
         );
@@ -281,6 +319,22 @@ class TinyUpgrader {
       // 执行下载
       final useRange = existingLength > 0;
 
+      // 构建请求头：OSS 签名 + 断点续传 Range
+      final Map<String, String> downloadHeaders = {};
+
+      if (_ossConfig != null && !_ossConfig!.isPublicRead) {
+        downloadHeaders.addAll(
+          OssSigner.generateHeaders(
+            config: _ossConfig!,
+            downloadUrl: latest.downloadUrl,
+          ),
+        );
+      }
+
+      if (useRange) {
+        downloadHeaders['Range'] = 'bytes=$existingLength-';
+      }
+
       await _dio.download(
         latest.downloadUrl,
         _savePath,
@@ -295,13 +349,11 @@ class TinyUpgrader {
             progressNotifier.value = (currentTotal / totalSize).clamp(0.0, 1.0);
           }
         },
-        options: useRange
-            ? Options(
-                headers: {'Range': 'bytes=$existingLength-'},
-                // 断点续传：服务端应返回 206；如果返回 200 说明不支持 Range
-                validateStatus: (status) => status == 200 || status == 206,
-              )
-            : null,
+        options: Options(
+          headers: downloadHeaders.isEmpty ? null : downloadHeaders,
+          validateStatus:
+              useRange ? (status) => status == 200 || status == 206 : null,
+        ),
         deleteOnError: false,
       );
 
