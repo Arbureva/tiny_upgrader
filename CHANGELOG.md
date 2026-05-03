@@ -1,3 +1,11 @@
+# 1.1.0
+
+- 新增统一的事件回调系统 (`UpgraderCallback`)，覆盖初始化、检测、下载、校验、安装、清理全部环节
+- 新增 `UpgraderEvent` 和 `UpgraderEventType`，支持 24 种事件类型，携带结构化数据
+- `TinyUpgrader.init()` 新增 `onEvent` 和 `enableLog` 参数
+- 运行时可通过 `TinyUpgrader.instance.enableLog` 动态开关日志回调
+- 每个关键节点均发射对应事件，下载进度每帧回调，方便自定义进度 UI
+
 # 1.0.5
 - fixs some bugs
 - if server return http 416 code. it will be remove local apk

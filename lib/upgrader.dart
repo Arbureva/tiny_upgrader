@@ -8,6 +8,7 @@ import 'package:tiny_upgrader/dialog.dart';
 import 'package:tiny_upgrader/forced_update_page.dart';
 import 'package:tiny_upgrader/oss_config.dart';
 import 'package:tiny_upgrader/oss_signer.dart';
+import 'package:tiny_upgrader/upgrader_event.dart';
 import 'package:tiny_upgrader/upgrader_platform_interface.dart';
 import 'package:tiny_upgrader/update_info.dart';
 
@@ -94,6 +95,15 @@ class TinyUpgrader {
   ForcedUpdatePageBuilder? _forcedUpdatePageBuilder;
   OssConfig? _ossConfig;
 
+  /// 日志/事件回调，所有升级流程事件通过此回调统一输出。
+  UpgraderCallback? _onEvent;
+
+  /// 是否启用日志回调。
+  ///
+  /// 设置为 `true` 后，每个升级事件都会触发 [onEvent] 回调。
+  /// 可在运行时动态切换，方便调试或在特定页面开启。
+  bool _enableLog = false;
+
   // ========== 运行时状态 ==========
   CancelToken? _cancelToken;
   UpdateInfo? _updateInfo;
@@ -102,9 +112,30 @@ class TinyUpgrader {
   final ValueNotifier<DownloadStatus> statusNotifier = ValueNotifier(DownloadStatus.none);
   final ValueNotifier<double> progressNotifier = ValueNotifier(0.0);
 
+  // ========== 公开属性 ==========
+
+  /// 获取当前是否启用日志回调。
+  bool get enableLog => _enableLog;
+
+  /// 运行时切换日志回调开关。
+  set enableLog(bool value) {
+    _enableLog = value;
+    _emit(UpgraderEventType.log, '日志回调已${value ? "开启" : "关闭"}');
+  }
+
+  /// 获取当前设置的事件回调（可能为 null）。
+  UpgraderCallback? get onEvent => _onEvent;
+
   // ========== 初始化 ==========
 
-  /// 初始化配置，应在 App 启动时调用一次
+  /// 初始化配置，应在 App 启动时调用一次。
+  ///
+  /// [onEvent]：统一的升级事件回调，所有流程事件（检测、下载、校验、
+  /// 安装、清理）均通过此回调输出。调用方可根据 [UpgraderEvent.type]
+  /// 自行分发业务逻辑。
+  ///
+  /// [enableLog]：是否在初始化后立即启用日志回调，默认为 `false`。
+  /// 也可以在运行时通过 [enableLog] 属性动态切换。
   static void init({
     bool isDebug = false,
     String? baseUrl,
@@ -114,6 +145,8 @@ class TinyUpgrader {
     UpdateDialogBuilder? dialogBuilder,
     ForcedUpdatePageBuilder? forcedUpdatePageBuilder,
     OssConfig? ossConfig,
+    UpgraderCallback? onEvent,
+    bool enableLog = false,
   }) {
     final inst = instance;
     inst._isDebugging = isDebug;
@@ -121,6 +154,8 @@ class TinyUpgrader {
     inst._errorHandler = errorHandler;
     inst._forcedUpdatePageBuilder = forcedUpdatePageBuilder;
     inst._ossConfig = ossConfig;
+    inst._onEvent = onEvent;
+    inst._enableLog = enableLog;
 
     inst._dialogBuilder =
         dialogBuilder ??
@@ -158,6 +193,14 @@ class TinyUpgrader {
     }
 
     inst._initialized = true;
+    inst._emit(UpgraderEventType.init, 'TinyUpgrader 初始化完成', {
+      'isDebug': isDebug,
+      'enableLog': enableLog,
+      'hasOssConfig': ossConfig != null,
+      'hasCustomParser': parser != null,
+      'hasCustomDialog': dialogBuilder != null,
+      'hasForcedPage': forcedUpdatePageBuilder != null,
+    });
   }
 
   // ========== 公开方法 ==========
@@ -180,17 +223,32 @@ class TinyUpgrader {
     _assertAndroid();
     _assertInitialized();
 
-    _log('开始检查更新...');
+    _emit(UpgraderEventType.checkStart, '开始检查更新', {'url': url});
+
     try {
       final response = await _dio.get(url, queryParameters: params);
       if (response.statusCode != 200) {
-        throw '网络请求失败，状态码: ${response.statusCode}';
+        final errMsg = '网络请求失败，状态码: ${response.statusCode}';
+        _emit(UpgraderEventType.checkError, errMsg, {
+          'statusCode': response.statusCode,
+        });
+        throw errMsg;
       }
 
-      _log('检查更新响应: ${response.data}');
+      _emit(UpgraderEventType.checkResponse, '检查更新响应', {
+        'statusCode': response.statusCode,
+        'data': response.data,
+      });
+
       final newVersionInfo = await _parser(response.data);
       final packageInfo = await PackageInfo.fromPlatform();
-      _log('当前版本: ${packageInfo.version}+${packageInfo.buildNumber}');
+
+      _emit(UpgraderEventType.checkCurrentVersion, '当前版本信息', {
+        'version': packageInfo.version,
+        'buildNumber': packageInfo.buildNumber,
+        'appName': packageInfo.appName,
+        'packageName': packageInfo.packageName,
+      });
 
       _updateInfo = UpdateInfo(
         currentVersion: packageInfo.version,
@@ -204,11 +262,23 @@ class TinyUpgrader {
           : _defaultShouldUpdate(newVersionInfo, packageInfo);
 
       if (!hasUpdate) {
-        _log('当前已是最新版本。');
+        _emit(UpgraderEventType.checkNoUpdate, '当前已是最新版本', {
+          'currentVersion': packageInfo.version,
+          'currentBuildNumber': packageInfo.buildNumber,
+        });
         return;
       }
 
-      _log('发现新版本: ${newVersionInfo.version}+${newVersionInfo.buildVersion}');
+      _emit(UpgraderEventType.checkNewVersion, '发现新版本', {
+        'currentVersion': packageInfo.version,
+        'currentBuildNumber': packageInfo.buildNumber,
+        'latestVersion': newVersionInfo.version,
+        'latestBuildVersion': newVersionInfo.buildVersion,
+        'updateStrategy': newVersionInfo.updateStrategy.name,
+        'apkSize': newVersionInfo.apkSize,
+        'hasMd5': newVersionInfo.apkHashCode.isNotEmpty,
+        'modifyContent': newVersionInfo.modifyContent,
+      });
 
       // 重置下载状态
       statusNotifier.value = DownloadStatus.none;
@@ -226,6 +296,8 @@ class TinyUpgrader {
       final strategy = newVersionInfo.updateStrategy;
 
       if (strategy == UpdateStrategy.forced) {
+        _emit(UpgraderEventType.log, '触发强制更新页面');
+
         final pageBuilder = _forcedUpdatePageBuilder ??
             (ctx, info, st, pr) => DefaultForcedUpdatePage(
                   updateInfo: info,
@@ -242,6 +314,8 @@ class TinyUpgrader {
           ),
         );
       } else if (_dialogBuilder != null) {
+        _emit(UpgraderEventType.log, '弹出更新对话框 (${strategy.name})');
+
         showDialog(
           context: context,
           barrierDismissible: true,
@@ -251,10 +325,10 @@ class TinyUpgrader {
           ),
         );
       } else {
-        _log('警告: 未设置 dialogBuilder 和 onUpdateAvailable');
+        _emit(UpgraderEventType.log, '警告: 未设置 dialogBuilder 和 onUpdateAvailable');
       }
     } catch (e) {
-      _log('检查更新出错: $e');
+      _emit(UpgraderEventType.checkError, '检查更新出错: $e', {'error': e.toString()});
       _errorHandler?.call(e);
     }
   }
@@ -269,13 +343,13 @@ class TinyUpgrader {
     _assertAndroid();
 
     if (_updateInfo?.latestVersion == null) {
-      _log('错误: 更新信息为空');
+      _emit(UpgraderEventType.downloadError, '更新信息为空，无法开始下载');
       statusNotifier.value = DownloadStatus.error;
       return;
     }
 
     if (statusNotifier.value == DownloadStatus.downloading) {
-      _log('下载已在进行中');
+      _emit(UpgraderEventType.log, '下载已在进行中，跳过重复请求');
       return;
     }
 
@@ -289,8 +363,13 @@ class TinyUpgrader {
       // 文件名包含 version + buildVersion，避免版本切换时复用旧文件
       _savePath = '${tempDir.path}/app-v${latest.version}-${latest.buildVersion}.apk';
 
-      _log('保存路径: $_savePath');
-      _log('下载链接: ${latest.downloadUrl}');
+      _emit(UpgraderEventType.downloadStart, '准备下载', {
+        'savePath': _savePath,
+        'downloadUrl': latest.downloadUrl,
+        'apkSize': latest.apkSize,
+        'version': latest.version,
+        'buildVersion': latest.buildVersion,
+      });
 
       // 清理其他版本的残留文件
       await _cleanOldApkFiles(tempDir, _savePath!);
@@ -300,17 +379,24 @@ class TinyUpgrader {
 
       if (await file.exists()) {
         existingLength = await file.length();
-        _log('本地已有文件: $existingLength bytes');
+
+        _emit(UpgraderEventType.downloadResume, '检测到本地已有文件', {
+          'existingBytes': existingLength,
+          'expectedBytes': latest.apkSize,
+        });
 
         // 本地文件大小超出或等于预期大小
         if (latest.apkSize > 0 && existingLength >= latest.apkSize) {
           if (existingLength == latest.apkSize) {
-            _log('文件大小匹配，直接校验');
+            _emit(UpgraderEventType.log, '文件大小匹配，直接进入校验');
             await _onDownloadCompleted();
             return;
           }
           // 大小超出，说明文件损坏，删除重来
-          _log('本地文件大小异常 ($existingLength > ${latest.apkSize})，删除重下');
+          _emit(UpgraderEventType.downloadConflict, '本地文件大小异常，删除重下', {
+            'existingBytes': existingLength,
+            'expectedBytes': latest.apkSize,
+          });
           await file.delete();
           existingLength = 0;
         }
@@ -348,6 +434,15 @@ class TinyUpgrader {
           if (totalSize > 0) {
             progressNotifier.value = (currentTotal / totalSize).clamp(0.0, 1.0);
           }
+          _emit(UpgraderEventType.downloadProgress, '下载进度', {
+            'received': received,
+            'total': total,
+            'currentTotal': currentTotal,
+            'totalSize': totalSize,
+            'progress': totalSize > 0
+                ? (currentTotal / totalSize).clamp(0.0, 1.0)
+                : null,
+          });
         },
         options: Options(
           headers: downloadHeaders.isEmpty ? null : downloadHeaders,
@@ -364,7 +459,10 @@ class TinyUpgrader {
       if (latest.apkSize > 0) {
         final actualSize = await file.length();
         if (actualSize != latest.apkSize) {
-          _log('下载后文件大小不匹配 (实际: $actualSize, 预期: ${latest.apkSize})，可能是续传冲突，重新下载');
+          _emit(UpgraderEventType.downloadConflict, '文件大小不匹配，重新下载', {
+            'actualBytes': actualSize,
+            'expectedBytes': latest.apkSize,
+          });
           await file.delete();
           // 递归重试一次（此时本地文件已删除，不会再走续传）
           statusNotifier.value = DownloadStatus.none;
@@ -377,10 +475,15 @@ class TinyUpgrader {
     } on DioException catch (e) {
       if (CancelToken.isCancel(e)) {
         statusNotifier.value = DownloadStatus.paused;
-        _log('下载已暂停');
+        _emit(UpgraderEventType.downloadPaused, '下载已暂停', {
+          'savePath': _savePath,
+          'progress': progressNotifier.value,
+        });
       } else if (e.response?.statusCode == 416) {
         // 416 Range Not Satisfiable：本地文件 offset 无效
-        _log('收到 416，清理本地文件后重试');
+        _emit(UpgraderEventType.downloadRetry, '收到 416，清理本地文件后重试', {
+          'statusCode': 416,
+        });
         if (_savePath != null) {
           final file = File(_savePath!);
           if (await file.exists()) await file.delete();
@@ -389,12 +492,18 @@ class TinyUpgrader {
         await startDownload(); // 重试
       } else {
         statusNotifier.value = DownloadStatus.error;
-        _log('下载出错: $e');
+        _emit(UpgraderEventType.downloadError, '下载出错', {
+          'error': e.toString(),
+          'message': e.message,
+          'statusCode': e.response?.statusCode,
+        });
         _errorHandler?.call(e);
       }
     } catch (e) {
       statusNotifier.value = DownloadStatus.error;
-      _log('下载时发生未知错误: $e');
+      _emit(UpgraderEventType.downloadError, '下载时发生未知错误', {
+        'error': e.toString(),
+      });
       _errorHandler?.call(e);
     }
   }
@@ -403,6 +512,7 @@ class TinyUpgrader {
   void pauseDownload() {
     _assertAndroid();
     if (statusNotifier.value == DownloadStatus.downloading) {
+      _emit(UpgraderEventType.log, '用户请求暂停下载');
       _cancelToken?.cancel();
     }
   }
@@ -412,21 +522,32 @@ class TinyUpgrader {
     _assertAndroid();
 
     if (statusNotifier.value != DownloadStatus.finished || _savePath == null) {
-      _log('错误: 文件未下载完成，无法安装');
+      _emit(UpgraderEventType.installError, '文件未下载完成，无法安装', {
+        'status': statusNotifier.value.name,
+        'savePath': _savePath,
+      });
       return;
     }
 
-    _log('准备安装APK: $_savePath');
+    _emit(UpgraderEventType.installStart, '准备安装 APK', {
+      'filePath': _savePath,
+    });
+
     try {
       await TinyUpgraderPlatform.instance.installApk(_savePath!);
+      _emit(UpgraderEventType.installComplete, 'APK 安装请求已发送');
     } catch (e) {
-      _log('安装失败: $e');
+      _emit(UpgraderEventType.installError, '安装失败', {
+        'error': e.toString(),
+        'filePath': _savePath,
+      });
       _errorHandler?.call(e);
     }
   }
 
   /// 重置所有状态（用于需要重新开始的场景）
   void reset() {
+    _emit(UpgraderEventType.log, '重置所有状态');
     _cancelToken?.cancel();
     _cancelToken = null;
     _updateInfo = null;
@@ -440,11 +561,11 @@ class TinyUpgrader {
   /// 默认的更新判断逻辑
   bool _defaultShouldUpdate(VersionInfo newVersion, PackageInfo packageInfo) {
     if (newVersion.version != packageInfo.version) {
-      _log('版本号不一致: ${packageInfo.version} → ${newVersion.version}');
+      _emit(UpgraderEventType.log, '版本号不一致: ${packageInfo.version} → ${newVersion.version}');
       return true;
     }
     if (newVersion.buildVersion.toString() != packageInfo.buildNumber) {
-      _log('构建号不一致: ${packageInfo.buildNumber} → ${newVersion.buildVersion}');
+      _emit(UpgraderEventType.log, '构建号不一致: ${packageInfo.buildNumber} → ${newVersion.buildVersion}');
       return true;
     }
     return false;
@@ -452,42 +573,52 @@ class TinyUpgrader {
 
   /// 下载完成后的校验处理
   Future<void> _onDownloadCompleted() async {
-    _log('下载完成，路径: $_savePath');
+    _emit(UpgraderEventType.downloadComplete, '下载完成', {
+      'filePath': _savePath,
+    });
 
     final latestVersion = _updateInfo?.latestVersion;
     if (latestVersion == null) {
-      _log('没有版本信息，无法校验');
+      _emit(UpgraderEventType.validationFailed, '没有版本信息，无法校验');
       statusNotifier.value = DownloadStatus.error;
       return;
     }
 
     final file = File(_savePath!);
     if (!await file.exists()) {
-      _log('文件不存在');
+      _emit(UpgraderEventType.validationFailed, '文件不存在，无法校验', {
+        'filePath': _savePath,
+      });
       statusNotifier.value = DownloadStatus.error;
       return;
     }
 
     // MD5 校验（如果提供了 hash）
     if (latestVersion.apkHashCode.isNotEmpty) {
-      _log('正在校验 MD5...');
+      _emit(UpgraderEventType.validationStart, '开始 MD5 校验', {
+        'expectedMd5': latestVersion.apkHashCode.toLowerCase(),
+      });
+
       final bytes = await file.readAsBytes();
       final fileMd5 = md5.convert(bytes).toString();
       final expectedMd5 = latestVersion.apkHashCode.toLowerCase();
-      _log('文件MD5: $fileMd5, 期望: $expectedMd5');
 
       if (fileMd5 != expectedMd5) {
-        _log('MD5 校验失败，文件已损坏');
+        _emit(UpgraderEventType.validationFailed, 'MD5 校验失败，文件已损坏', {
+          'fileMd5': fileMd5,
+          'expectedMd5': expectedMd5,
+        });
         await file.delete();
         statusNotifier.value = DownloadStatus.error;
         progressNotifier.value = 0.0;
         _errorHandler?.call('MD5_VALIDATION_FAILED');
         return;
       }
-      _log('MD5 校验通过');
+      _emit(UpgraderEventType.validationSuccess, 'MD5 校验通过', {
+        'fileMd5': fileMd5,
+      });
     } else {
-      // 未提供 MD5 时不删文件，而是放行（跳过校验）
-      _log('未提供 MD5 校验值，跳过校验');
+      _emit(UpgraderEventType.validationSkipped, '未提供 MD5 校验值，跳过校验');
     }
 
     statusNotifier.value = DownloadStatus.finished;
@@ -498,14 +629,21 @@ class TinyUpgrader {
   Future<void> _cleanOldApkFiles(Directory tempDir, String currentPath) async {
     try {
       final entities = tempDir.listSync();
+      bool hasCleaned = false;
       for (final entity in entities) {
         if (entity is File && entity.path.endsWith('.apk') && entity.path != currentPath) {
-          _log('清理旧版 APK: ${entity.path}');
+          _emit(UpgraderEventType.cleanOldFiles, '清理旧版 APK', {
+            'filePath': entity.path,
+          });
           await entity.delete();
+          hasCleaned = true;
         }
       }
+      if (!hasCleaned) {
+        // 没有旧文件需要清理，不单独发事件
+      }
     } catch (e) {
-      _log('清理旧文件时出错: $e');
+      _emit(UpgraderEventType.log, '清理旧文件时出错: $e');
     }
   }
 
@@ -522,9 +660,16 @@ class TinyUpgrader {
     assert(_initialized, 'TinyUpgrader.init() must be called before use');
   }
 
-  void _log(String message) {
+  /// 统一的日志/事件发射方法。
+  ///
+  /// 当 [_enableLog] 为 `true` 且 [_onEvent] 不为 `null` 时触发回调。
+  /// 同时，如果 [_isDebugging] 为 `true`，会通过 [debugPrint] 输出到控制台。
+  void _emit(UpgraderEventType type, String message, [Map<String, dynamic>? data]) {
     if (_isDebugging) {
-      debugPrint('[TinyUpgrader] $message');
+      debugPrint('[TinyUpgrader] ${type.name}: $message');
+    }
+    if (_enableLog && _onEvent != null) {
+      _onEvent!(UpgraderEvent(type: type, message: message, data: data));
     }
   }
 }
