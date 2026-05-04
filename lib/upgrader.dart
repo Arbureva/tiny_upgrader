@@ -104,6 +104,11 @@ class TinyUpgrader {
   /// 可在运行时动态切换，方便调试或在特定页面开启。
   bool _enableLog = false;
 
+  /// 下载重试最大次数，默认为 3。
+  ///
+  /// 当文件大小不匹配或收到 HTTP 416 时触发重试，超过此次数后终止下载。
+  int _maxRetryCount = 3;
+
   // ========== 运行时状态 ==========
   CancelToken? _cancelToken;
   UpdateInfo? _updateInfo;
@@ -147,6 +152,7 @@ class TinyUpgrader {
     OssConfig? ossConfig,
     UpgraderCallback? onEvent,
     bool enableLog = false,
+    int maxRetryCount = 3,
   }) {
     final inst = instance;
     inst._isDebugging = isDebug;
@@ -156,6 +162,7 @@ class TinyUpgrader {
     inst._ossConfig = ossConfig;
     inst._onEvent = onEvent;
     inst._enableLog = enableLog;
+    inst._maxRetryCount = maxRetryCount;
 
     inst._dialogBuilder =
         dialogBuilder ??
@@ -196,6 +203,7 @@ class TinyUpgrader {
     inst._emit(UpgraderEventType.init, 'TinyUpgrader 初始化完成', {
       'isDebug': isDebug,
       'enableLog': enableLog,
+      'maxRetryCount': maxRetryCount,
       'hasOssConfig': ossConfig != null,
       'hasCustomParser': parser != null,
       'hasCustomDialog': dialogBuilder != null,
@@ -339,7 +347,10 @@ class TinyUpgrader {
   /// 1. 文件名包含 version+buildVersion，版本变化自动重新下载
   /// 2. 检测本地文件大小，若超出预期则删除重来
   /// 3. 服务端不支持 Range（返回200而非206）时，自动清理本地文件从头写入
-  Future<void> startDownload() async {
+  /// 4. 大小不匹配或 HTTP 416 时自动重试，最多 [_maxRetryCount] 次
+  Future<void> startDownload() => _doStartDownload(0);
+
+  Future<void> _doStartDownload(int retryCount) async {
     _assertAndroid();
 
     if (_updateInfo?.latestVersion == null) {
@@ -369,6 +380,8 @@ class TinyUpgrader {
         'apkSize': latest.apkSize,
         'version': latest.version,
         'buildVersion': latest.buildVersion,
+        'retryCount': retryCount,
+        'maxRetryCount': _maxRetryCount,
       });
 
       // 清理其他版本的残留文件
@@ -459,14 +472,28 @@ class TinyUpgrader {
       if (latest.apkSize > 0) {
         final actualSize = await file.length();
         if (actualSize != latest.apkSize) {
+          if (retryCount >= _maxRetryCount) {
+            _emit(UpgraderEventType.downloadError, '重试次数已耗尽 ($_maxRetryCount/$_maxRetryCount)，文件大小不匹配', {
+              'actualBytes': actualSize,
+              'expectedBytes': latest.apkSize,
+              'retryCount': retryCount,
+              'maxRetryCount': _maxRetryCount,
+            });
+            await file.delete();
+            statusNotifier.value = DownloadStatus.error;
+            progressNotifier.value = 0.0;
+            _errorHandler?.call('RETRY_EXHAUSTED: 下载文件大小不匹配，已重试 $_maxRetryCount 次');
+            return;
+          }
           _emit(UpgraderEventType.downloadConflict, '文件大小不匹配，重新下载', {
             'actualBytes': actualSize,
             'expectedBytes': latest.apkSize,
+            'retryCount': retryCount + 1,
+            'maxRetryCount': _maxRetryCount,
           });
           await file.delete();
-          // 递归重试一次（此时本地文件已删除，不会再走续传）
           statusNotifier.value = DownloadStatus.none;
-          await startDownload();
+          await _doStartDownload(retryCount + 1);
           return;
         }
       }
@@ -480,16 +507,32 @@ class TinyUpgrader {
           'progress': progressNotifier.value,
         });
       } else if (e.response?.statusCode == 416) {
-        // 416 Range Not Satisfiable：本地文件 offset 无效
+        if (retryCount >= _maxRetryCount) {
+          _emit(UpgraderEventType.downloadError, '重试次数已耗尽 ($_maxRetryCount/$_maxRetryCount)，收到 416', {
+            'statusCode': 416,
+            'retryCount': retryCount,
+            'maxRetryCount': _maxRetryCount,
+          });
+          if (_savePath != null) {
+            final file = File(_savePath!);
+            if (await file.exists()) await file.delete();
+          }
+          statusNotifier.value = DownloadStatus.error;
+          progressNotifier.value = 0.0;
+          _errorHandler?.call('RETRY_EXHAUSTED: HTTP 416 重试 $_maxRetryCount 次后仍失败');
+          return;
+        }
         _emit(UpgraderEventType.downloadRetry, '收到 416，清理本地文件后重试', {
           'statusCode': 416,
+          'retryCount': retryCount + 1,
+          'maxRetryCount': _maxRetryCount,
         });
         if (_savePath != null) {
           final file = File(_savePath!);
           if (await file.exists()) await file.delete();
         }
         statusNotifier.value = DownloadStatus.none;
-        await startDownload(); // 重试
+        await _doStartDownload(retryCount + 1);
       } else {
         statusNotifier.value = DownloadStatus.error;
         _emit(UpgraderEventType.downloadError, '下载出错', {
