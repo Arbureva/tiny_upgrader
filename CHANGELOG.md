@@ -1,3 +1,9 @@
+# 1.1.1
+
+- 新增下载重试上限机制，`TinyUpgrader.init()` 新增 `maxRetryCount` 参数（默认 3），防止文件大小不匹配或 HTTP 416 时无限循环
+- `downloadStart`、`downloadConflict`、`downloadRetry` 事件数据中增加 `retryCount` 和 `maxRetryCount` 字段
+- 重试耗尽时触发 `downloadError` 事件并回调 `errorHandler`，状态置为 error
+
 # 1.1.0
 
 - 新增统一的事件回调系统 (`UpgraderCallback`)，覆盖初始化、检测、下载、校验、安装、清理全部环节
