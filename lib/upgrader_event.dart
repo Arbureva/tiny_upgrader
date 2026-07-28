@@ -29,6 +29,8 @@ enum UpgraderEventType {
 
   // ===== 安装 =====
   installStart,
+  installIntentLaunched,
+  @Deprecated('Use installIntentLaunched')
   installComplete,
   installError,
 
@@ -55,11 +57,11 @@ class UpgraderEvent {
 
   @override
   String toString() =>
-      '[${timestamp.toIso8601String()}] ${type.name}: $message${data != null ? ' | $data' : ''}';
+      '[${timestamp.toIso8601String()}] ${type.name}: '
+      '$message${data != null ? ' | $data' : ''}';
 }
 
 /// 统一的回调签名。
 ///
-/// 调用方通过 [TinyUpgrader.enableLog] 开关控制是否触发回调，
-/// 并在回调中根据 [UpgraderEvent.type] 自行分发业务逻辑。
+/// 业务事件始终触发；[TinyUpgrader.enableLog] 只控制通用日志事件。
 typedef UpgraderCallback = void Function(UpgraderEvent event);

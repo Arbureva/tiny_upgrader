@@ -1,5 +1,6 @@
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 import 'upgrader_method_channel.dart';
+import 'install_result.dart';
 
 /// TinyUpgrader 平台接口
 ///
@@ -33,7 +34,25 @@ abstract class TinyUpgraderPlatform extends PlatformInterface {
   /// 直接安装APK文件
   ///
   /// [filePath] APK文件的完整路径
-  Future<bool> installApk(String filePath) {
+  Future<InstallResult> installApk(String filePath) {
     throw UnimplementedError('installApk() has not been implemented.');
+  }
+
+  Future<bool> canRequestPackageInstalls() {
+    throw UnimplementedError(
+      'canRequestPackageInstalls() has not been implemented.',
+    );
+  }
+
+  Future<void> openInstallPermissionSettings() {
+    throw UnimplementedError(
+      'openInstallPermissionSettings() has not been implemented.',
+    );
+  }
+
+  Future<int> getAvailableStorageBytes(String directoryPath) {
+    throw UnimplementedError(
+      'getAvailableStorageBytes() has not been implemented.',
+    );
   }
 }

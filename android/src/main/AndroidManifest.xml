@@ -7,10 +7,10 @@
         <!-- ... 你的其他 application 配置 ... -->
 
         <!-- 必需：声明 FileProvider -->
-        <!-- android:authorities 必须是唯一的，通常是 "你的应用包名.fileprovider" -->
+        <!-- 使用插件专属 authority，避免与宿主的 FileProvider 冲突 -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
+            android:authorities="${applicationId}.tiny_upgrader.fileprovider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

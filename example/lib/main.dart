@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:tiny_upgrader/forced_update_page.dart';
 import 'package:tiny_upgrader/oss_config.dart';
 import 'package:tiny_upgrader/update_info.dart';
+import 'package:tiny_upgrader/update_check_result.dart';
 import 'package:tiny_upgrader/upgrader.dart';
 import 'package:tiny_upgrader/upgrader_event.dart';
 
@@ -112,7 +113,18 @@ class _MyHomePageState extends State<MyHomePage> {
     try {
       const String checkUrl = 'api/apk-manager-v1/latest?token=123123';
 
-      await _upgrader.check(context, url: checkUrl);
+      final result = await _upgrader.check(context, url: checkUrl);
+      if (!mounted) return;
+      switch (result) {
+        case UpdateAvailable():
+          break;
+        case NoUpdate():
+          _showSnackBar('当前已是最新版本');
+        case UpdateCheckFailed(:final error):
+          _showSnackBar('检查更新失败: ${error.message}');
+        case UpdateUnsupported(:final message):
+          _showSnackBar(message);
+      }
     } catch (e) {
       _showSnackBar('检查更新失败: $e');
     }
@@ -303,6 +315,8 @@ class _MyHomePageState extends State<MyHomePage> {
       case UpgraderEventType.downloadPaused:
         return Colors.blue;
       case UpgraderEventType.downloadComplete:
+      case UpgraderEventType.installIntentLaunched:
+      // ignore: deprecated_member_use
       case UpgraderEventType.installComplete:
       case UpgraderEventType.validationSuccess:
         return Colors.green;

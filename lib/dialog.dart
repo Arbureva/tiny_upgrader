@@ -21,52 +21,56 @@ class MyUpdateDialog extends StatelessWidget {
 
     return AlertDialog(
       title: const Text('发现新版本'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('最新版本: ${latestVersion.version}+${latestVersion.buildVersion}'),
-          const SizedBox(height: 8),
-          Text(latestVersion.modifyContent),
-          const SizedBox(height: 16),
-          ValueListenableBuilder<DownloadStatus>(
-            valueListenable: statusNotifier,
-            builder: (context, status, _) {
-              switch (status) {
-                case DownloadStatus.downloading:
-                case DownloadStatus.paused:
-                  return ValueListenableBuilder<double>(
-                    valueListenable: progressNotifier,
-                    builder: (context, progress, _) {
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          LinearProgressIndicator(value: progress),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${(progress * 100).toStringAsFixed(1)}%',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                        ],
-                      );
-                    },
-                  );
-                case DownloadStatus.finished:
-                  return const Text(
-                    '下载完成，可以安装了！',
-                    style: TextStyle(color: Colors.green),
-                  );
-                case DownloadStatus.error:
-                  return const Text(
-                    '下载失败，请重试',
-                    style: TextStyle(color: Colors.red),
-                  );
-                case DownloadStatus.none:
-                  return const SizedBox.shrink();
-              }
-            },
-          ),
-        ],
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '最新版本: ${latestVersion.version}+${latestVersion.buildVersion}',
+            ),
+            const SizedBox(height: 8),
+            Text(latestVersion.modifyContent),
+            const SizedBox(height: 16),
+            ValueListenableBuilder<DownloadStatus>(
+              valueListenable: statusNotifier,
+              builder: (context, status, _) {
+                switch (status) {
+                  case DownloadStatus.downloading:
+                  case DownloadStatus.paused:
+                    return ValueListenableBuilder<double>(
+                      valueListenable: progressNotifier,
+                      builder: (context, progress, _) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            LinearProgressIndicator(value: progress),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${(progress * 100).toStringAsFixed(1)}%',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        );
+                      },
+                    );
+                  case DownloadStatus.finished:
+                    return const Text(
+                      '下载完成，可以安装了！',
+                      style: TextStyle(color: Colors.green),
+                    );
+                  case DownloadStatus.error:
+                    return const Text(
+                      '下载失败，请重试',
+                      style: TextStyle(color: Colors.red),
+                    );
+                  case DownloadStatus.none:
+                    return const SizedBox.shrink();
+                }
+              },
+            ),
+          ],
+        ),
       ),
       actions: [
         if (!isForced)

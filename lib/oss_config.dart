@@ -1,7 +1,8 @@
 /// OSS (Alibaba Cloud Object Storage Service) configuration.
 ///
 /// Supports two modes:
-/// - **STS token**: Provide [accessKeyId], [accessKeySecret], and [securityToken].
+/// - **STS token**: Provide [accessKeyId], [accessKeySecret], and
+///   [securityToken].
 ///   Requests will be signed automatically.
 /// - **Public-read**: Leave [accessKeyId] empty. No signing is performed, the
 ///   download URL is used directly.

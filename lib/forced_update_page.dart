@@ -10,12 +10,14 @@ class DefaultForcedUpdatePage extends StatefulWidget {
   final UpdateInfo updateInfo;
   final ValueNotifier<DownloadStatus> statusNotifier;
   final ValueNotifier<double> progressNotifier;
+  final bool autoStartDownload;
 
   const DefaultForcedUpdatePage({
     super.key,
     required this.updateInfo,
     required this.statusNotifier,
     required this.progressNotifier,
+    this.autoStartDownload = false,
   });
 
   @override
@@ -28,6 +30,7 @@ class _DefaultForcedUpdatePageState extends State<DefaultForcedUpdatePage> {
   void initState() {
     super.initState();
     // Auto-start the download when the page first appears.
+    if (!widget.autoStartDownload) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.statusNotifier.value == DownloadStatus.none ||
           widget.statusNotifier.value == DownloadStatus.error) {
@@ -52,16 +55,19 @@ class _DefaultForcedUpdatePageState extends State<DefaultForcedUpdatePage> {
                 const Spacer(flex: 1),
 
                 // App icon
-                Icon(Icons.system_update_rounded,
-                    size: 64, color: colors.primary),
+                Icon(
+                  Icons.system_update_rounded,
+                  size: 64,
+                  color: colors.primary,
+                ),
                 const SizedBox(height: 24),
 
                 // Title
                 Text(
                   '发现新版本',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 8),
 
@@ -69,9 +75,9 @@ class _DefaultForcedUpdatePageState extends State<DefaultForcedUpdatePage> {
                 Text(
                   'v${latest.version} (build ${latest.buildVersion})',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: colors.primary,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    color: colors.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 24),
 
@@ -129,8 +135,8 @@ class _DefaultForcedUpdatePageState extends State<DefaultForcedUpdatePage> {
                       return Text(
                         '更新完成前无法使用应用',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colors.onSurface.withValues(alpha: 0.5),
-                            ),
+                          color: colors.onSurface.withValues(alpha: 0.5),
+                        ),
                       );
                     }
                     return const SizedBox.shrink();
@@ -177,10 +183,7 @@ class _ProgressSection extends StatelessWidget {
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    minHeight: 8,
-                  ),
+                  child: LinearProgressIndicator(value: progress, minHeight: 8),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -232,10 +235,7 @@ class _ActionButton extends StatelessWidget {
     return SizedBox(
       width: double.infinity,
       height: 48,
-      child: FilledButton(
-        onPressed: () => _handlePress(),
-        child: Text(_label),
-      ),
+      child: FilledButton(onPressed: () => _handlePress(), child: Text(_label)),
     );
   }
 

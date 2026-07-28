@@ -1,4 +1,5 @@
 import 'package:tiny_upgrader/upgrader.dart';
+import 'package:tiny_upgrader/file_hash.dart';
 
 class VersionInfo {
   final int? id;
@@ -23,8 +24,11 @@ class VersionInfo {
   /// APK 文件大小（字节），0 表示未知
   final int apkSize;
 
-  /// APK 文件的 MD5 哈希值（可为空字符串，表示跳过校验）
+  /// APK 文件摘要（可为空字符串，表示仅校验 APK/ZIP 文件头）
   final String apkHashCode;
+
+  /// [apkHashCode] 使用的摘要算法，默认为兼容旧服务端的 MD5。
+  final ApkHashAlgorithm apkHashAlgorithm;
 
   /// 服务端 APK 存储路径（一般客户端不使用）
   final String apkPath;
@@ -40,6 +44,7 @@ class VersionInfo {
     required this.downloadUrl,
     this.apkSize = 0,
     this.apkHashCode = '',
+    this.apkHashAlgorithm = ApkHashAlgorithm.md5,
     this.apkPath = '',
   });
 
@@ -48,13 +53,19 @@ class VersionInfo {
       id: json['id'] as int?,
       createdAt: json['created_at'] as int?,
       updatedAt: json['updated_at'] as int?,
-      updateStrategy: UpdateStrategy.fromInt((json['update_status'] as int?) ?? 0),
+      updateStrategy: UpdateStrategy.fromInt(
+        (json['update_status'] as int?) ?? 0,
+      ),
       version: json['version'] as String? ?? '',
       buildVersion: json['build_version'] as int? ?? 0,
       modifyContent: json['modify_content'] as String? ?? '',
       downloadUrl: json['download_url'] as String? ?? '',
       apkSize: json['apk_size'] as int? ?? 0,
       apkHashCode: json['apk_hash_code'] as String? ?? '',
+      apkHashAlgorithm: ApkHashAlgorithm.parse(
+        json['apk_hash_algorithm'] as String? ??
+            json['hash_algorithm'] as String?,
+      ),
       apkPath: json['apk_path'] as String? ?? '',
     );
   }
@@ -70,5 +81,9 @@ class UpdateInfo {
   /// 服务端最新版本信息
   final VersionInfo? latestVersion;
 
-  UpdateInfo({required this.currentVersion, required this.currentBuildNumber, this.latestVersion});
+  UpdateInfo({
+    required this.currentVersion,
+    required this.currentBuildNumber,
+    this.latestVersion,
+  });
 }

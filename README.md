@@ -1,4 +1,4 @@
-# TinyUpgreade
+# TinyUpgrader
 
 这是一个 Flutter 项目，APP 升级插件，支持使用 Flutter 组件作为更新弹窗。
 
@@ -8,6 +8,8 @@
 
 - 支持使用 Flutter Widget 自定义更新弹窗样式
 - 支持使用事件回调无 UI 更新，当你需要自定义一个 APP 更新**”页面“**而非弹窗时，它会非常有用。
+- 支持流式 MD5/SHA-256 校验及安全的 HTTP Range 断点续传
+- 下载在应用进程内执行；支持断点续传，但不等同于系统后台下载任务
 - 至少 2 年的维护支持
 
 ## 开始使用
@@ -22,7 +24,7 @@ TinyUpgrader.init(
   // APP路径前缀
   baseUrl: 'https://example.cn:8080/',
 
-  // 错误回调函数，为了避免影响您的业务，只在这里进行回调提示，而不去throw错误
+  // 兼容旧调用方的错误回调；check() 同时会返回结构化结果
   errorHandler: (error) {
     debugPrint('出现错误: $error');
   },
@@ -36,14 +38,52 @@ TinyUpgrader.init(
     res.downloadUrl = '${res.downloadUrl}?token=123123';
     return res;
   },
+
+  // 强制更新页默认等待用户点击后下载，明确需要时才打开
+  autoStartForcedDownload: false,
+
+  // 网络重试与文件完整性重试分别配置
+  maxNetworkRetryCount: 2,
+  maxValidationRetryCount: 3,
+
+  // 除下载文件与安装器 staging 空间外，再保留 64 MiB
+  minFreeSpaceMarginBytes: 64 * 1024 * 1024,
 );
 ```
 
-而在检查更新时，只需要简单一行代码即可完成
+`check()` 会明确区分有更新、无更新、失败和不支持的平台：
 
 ```dart
-await _upgrader.check(context, url: 'api/apk-manager-v1/latest');
+final result = await _upgrader.check(
+  context,
+  url: 'api/apk-manager-v1/latest',
+);
+
+switch (result) {
+  case UpdateAvailable(:final info):
+    debugPrint('发现 ${info.latestVersion!.version}');
+  case NoUpdate():
+    debugPrint('当前已是最新版本');
+  case UpdateCheckFailed(:final error):
+    debugPrint('检查失败: ${error.message}');
+  case UpdateUnsupported(:final message):
+    debugPrint(message);
+}
 ```
+
+版本号按数字段比较，支持 `1.2`、`1.2.0` 与 `v1.2.0`。版本相同时才比较构建号；非法版本会返回 `UpdateCheckFailed`。
+
+Android 8+ 的未知来源安装权限需要显式处理：
+
+```dart
+final result = await TinyUpgrader.instance.install();
+if (result.status == InstallStatus.permissionRequired) {
+  await TinyUpgrader.instance.openInstallPermissionSettings();
+  // 用户返回应用后，再次调用 install()。
+}
+```
+
+服务端可通过 `apk_hash_algorithm` 指定 `md5`（默认）或 `sha256`，摘要值仍放在 `apk_hash_code`。建议始终至少提供 `apk_size` 或摘要之一。
 
 ## 后端代码示例
 
