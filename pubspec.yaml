@@ -1,7 +1,14 @@
 name: tiny_upgrader
-description: "A Flutter app upgrade plugin. You can use it to upgrade your app. Supports custom upgrade dialogs or pages. Provides multiple upgrade methods."
+description: "Android Flutter in-app updates with foreground APK downloads, Range resume, MD5/SHA-256 validation, custom UI, and structured results."
 version: 1.2.0
 homepage: https://github.com/Arbureva/tiny_upgrader
+repository: https://github.com/Arbureva/tiny_upgrader
+issue_tracker: https://github.com/Arbureva/tiny_upgrader/issues
+topics:
+  - android
+  - apk
+  - updater
+  - download
 
 environment:
   sdk: ^3.8.1
@@ -12,7 +19,6 @@ dependencies:
   dio: ^5.8.0+1
   flutter:
     sdk: flutter
-  http: ^1.4.0
   package_info_plus: ^8.3.0
   path_provider: ^2.1.5
   plugin_platform_interface: ^2.0.2

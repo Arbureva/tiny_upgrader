@@ -1,0 +1,20 @@
+# Local/build artifacts (a .pubignore replaces the .gitignore fallback).
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.idea/
+.vscode/
+.git/
+build/
+**/build/
+**/.dart_tool/
+*.iml
+*.log
+*.pyc
+pubspec.lock
+example/pubspec.lock
+
+# Maintainer-only test orchestration.
+example/tool/
+example/integration_test/
+android/src/test/

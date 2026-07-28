@@ -6,6 +6,11 @@ import 'package:tiny_upgrader/update_check_result.dart';
 import 'package:tiny_upgrader/upgrader.dart';
 import 'package:tiny_upgrader/upgrader_event.dart';
 
+const String _exampleBaseUrl = String.fromEnvironment(
+  'TINY_UPGRADER_BASE_URL',
+  defaultValue: 'https://example:8080/',
+);
+
 void main() {
   runApp(MyApp());
 }
@@ -50,7 +55,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void _initUpgrader({required bool useOss}) {
     TinyUpgrader.init(
       isDebug: true,
-      baseUrl: 'https://example:8080/',
+      baseUrl: _exampleBaseUrl,
       enableLog: true,
       onEvent: (event) {
         setState(() {
@@ -67,18 +72,21 @@ class _MyHomePageState extends State<MyHomePage> {
         debugPrint('出现错误: $error');
       },
       parser: (response) async {
-        var res = VersionInfo.fromMap((response as Map<String, dynamic>)['data']);
+        var res = VersionInfo.fromMap(
+          (response as Map<String, dynamic>)['data'],
+        );
         res.downloadUrl = '${res.downloadUrl}?token=123123';
         return res;
       },
       // 自定义强制更新拦截页（可选，不传则使用 DefaultForcedUpdatePage）
-      forcedUpdatePageBuilder: (context, info, statusNotifier, progressNotifier) {
-        return DefaultForcedUpdatePage(
-          updateInfo: info,
-          statusNotifier: statusNotifier,
-          progressNotifier: progressNotifier,
-        );
-      },
+      forcedUpdatePageBuilder:
+          (context, info, statusNotifier, progressNotifier) {
+            return DefaultForcedUpdatePage(
+              updateInfo: info,
+              statusNotifier: statusNotifier,
+              progressNotifier: progressNotifier,
+            );
+          },
       // OSS 配置示例（根据实际情况填写）
       ossConfig: useOss
           ? OssConfig(
@@ -132,9 +140,9 @@ class _MyHomePageState extends State<MyHomePage> {
 
   /// 显示提示信息
   void _showSnackBar(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message), duration: Duration(seconds: 3)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: Duration(seconds: 3)),
+    );
   }
 
   void _toggleOss(bool useOss) {
@@ -185,6 +193,13 @@ class _MyHomePageState extends State<MyHomePage> {
             child: Column(
               children: [
                 Text('测试平台: $_platformVersion'),
+                const SizedBox(height: 4),
+                Text(
+                  '更新服务: $_exampleBaseUrl',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
                 const SizedBox(height: 8),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,

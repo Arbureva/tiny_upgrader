@@ -8,7 +8,9 @@ plugins {
 android {
     namespace = "com.example.tiny_upgrader_example"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = "27.0.12077973"
+    // integration_test currently requires this NDK. Use the highest requested
+    // version because Android NDK releases are backward compatible here.
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11

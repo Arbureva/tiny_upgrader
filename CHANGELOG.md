@@ -1,5 +1,7 @@
 # 1.2.0
 
+- 将 APK 下载迁移到 Android `dataSync` 前台服务，支持通知进度、通知栏暂停、进程恢复与 Flutter 状态重连
+- 系统下载通知限频为每秒最多更新一次，避免厂商系统丢弃高频通知
 - APK 摘要改为流式计算，并支持 MD5 与 SHA-256
 - 新增严格的数字版本比较与结构化更新检查结果
 - 新增未知来源安装权限 API 与结构化安装结果
@@ -11,6 +13,8 @@
 - Release 构建也会执行平台与初始化检查
 - 业务事件不再受日志开关影响，且回调异常不会中断升级流程
 - FileProvider 使用插件专属 authority，并显式依赖 AndroidX Core
+- 新增统一入口 `package:tiny_upgrader/tiny_upgrader.dart`
+- Example 新增无需真实后端的本地服务与真机人工验收入口
 
 # 1.1.1
 

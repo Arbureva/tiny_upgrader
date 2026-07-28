@@ -2,13 +2,16 @@ package com.example.tiny_upgrader
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.os.StatFs
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -23,6 +26,28 @@ class TinyUpgraderPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
     private lateinit var channel: MethodChannel
     private lateinit var context: Context
     private var activity: Activity? = null
+    private var receiverRegistered = false
+    private val downloadEventReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != TinyUpgraderDownloadService.ACTION_EVENT) return
+            channel.invokeMethod(
+                "foregroundDownloadEvent",
+                hashMapOf(
+                    "type" to intent.getStringExtra("type"),
+                    "state" to intent.getStringExtra("state"),
+                    "sessionId" to intent.getIntExtra("sessionId", 0),
+                    "savePath" to intent.getStringExtra("savePath"),
+                    "downloadedBytes" to intent.getLongExtra("downloadedBytes", 0L),
+                    "totalBytes" to intent.getLongExtra("totalBytes", 0L),
+                    "code" to intent.getStringExtra("code"),
+                    "message" to intent.getStringExtra("message"),
+                    "networkRetryCount" to intent.getIntExtra("networkRetryCount", 0),
+                    "validationRetryCount" to
+                        intent.getIntExtra("validationRetryCount", 0),
+                ),
+            )
+        }
+    }
 
     // ========== FlutterPlugin 生命周期 ==========
 
@@ -32,9 +57,20 @@ class TinyUpgraderPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
         // 创建 MethodChannel
         channel = MethodChannel(flutterPluginBinding.binaryMessenger, "tiny_upgrader")
         channel.setMethodCallHandler(this)
+        ContextCompat.registerReceiver(
+            context,
+            downloadEventReceiver,
+            IntentFilter(TinyUpgraderDownloadService.ACTION_EVENT),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        receiverRegistered = true
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        if (receiverRegistered) {
+            context.unregisterReceiver(downloadEventReceiver)
+            receiverRegistered = false
+        }
         channel.setMethodCallHandler(null)
     }
 
@@ -123,6 +159,54 @@ class TinyUpgraderPlugin : FlutterPlugin, MethodCallHandler, ActivityAware {
                         e.toString(),
                     )
                 }
+            }
+            "startForegroundDownload" -> {
+                val arguments = call.arguments as? Map<*, *>
+                if (arguments == null) {
+                    result.error("INVALID_ARGUMENT", "Download request is required.", null)
+                    return
+                }
+                try {
+                    TinyUpgraderDownloadService.start(context, arguments)
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error(
+                        "FOREGROUND_DOWNLOAD_ERROR",
+                        "Unable to start foreground download: ${e.message}",
+                        e.toString(),
+                    )
+                }
+            }
+            "pauseForegroundDownload" -> {
+                try {
+                    TinyUpgraderDownloadService.pause(context)
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error(
+                        "FOREGROUND_DOWNLOAD_ERROR",
+                        "Unable to pause foreground download: ${e.message}",
+                        e.toString(),
+                    )
+                }
+            }
+            "cancelForegroundDownload" -> {
+                try {
+                    TinyUpgraderDownloadService.cancel(
+                        context,
+                        call.argument<Boolean>("deleteFile") ?: true,
+                    )
+                    result.success(null)
+                } catch (e: Exception) {
+                    result.error(
+                        "FOREGROUND_DOWNLOAD_ERROR",
+                        "Unable to cancel foreground download: ${e.message}",
+                        e.toString(),
+                    )
+                }
+            }
+            "getForegroundDownloadState" -> {
+                TinyUpgraderDownloadService.resumeIfNeeded(context)
+                result.success(ForegroundDownloadStore.stateMap(context))
             }
             else -> {
                 result.notImplemented()

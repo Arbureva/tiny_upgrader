@@ -45,8 +45,9 @@ class OssSigner {
       }
     });
     final List<String> sortedKeys = ossHeaders.keys.toList()..sort();
-    final String canonicalizedOssHeaders =
-        sortedKeys.map((k) => '$k:${ossHeaders[k]}').join('\n');
+    final String canonicalizedOssHeaders = sortedKeys
+        .map((k) => '$k:${ossHeaders[k]}')
+        .join('\n');
 
     // Build StringToSign per OSS spec:
     //   VERB + "\n" +

@@ -1,5 +1,6 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tiny_upgrader/foreground_download.dart';
 import 'package:tiny_upgrader/install_result.dart';
 import 'package:tiny_upgrader/upgrader_method_channel.dart';
 
@@ -18,6 +19,17 @@ void main() {
             'canRequestPackageInstalls' => true,
             'getAvailableStorageBytes' => 1024,
             'openInstallPermissionSettings' => null,
+            'startForegroundDownload' => null,
+            'pauseForegroundDownload' => null,
+            'cancelForegroundDownload' => null,
+            'getForegroundDownloadState' => <String, Object>{
+              'type': 'state',
+              'state': 'paused',
+              'sessionId': 7,
+              'savePath': '/tmp/update.apk',
+              'downloadedBytes': 512,
+              'totalBytes': 1024,
+            },
             _ => throw MissingPluginException(),
           };
         });
@@ -41,5 +53,26 @@ void main() {
     expect(await platform.canRequestPackageInstalls(), isTrue);
     expect(await platform.getAvailableStorageBytes('/tmp'), 1024);
     await platform.openInstallPermissionSettings();
+  });
+
+  test('starts and restores a foreground download', () async {
+    await platform.startForegroundDownload(
+      const ForegroundDownloadRequest(
+        sessionId: 7,
+        url: 'https://example.com/update.apk',
+        savePath: '/tmp/update.apk',
+        headers: {},
+        expectedSize: 1024,
+        expectedHash: '',
+        hashAlgorithm: 'md5',
+        maxNetworkRetryCount: 2,
+        maxValidationRetryCount: 3,
+        minFreeSpaceMarginBytes: 64 * 1024 * 1024,
+      ),
+    );
+    final state = await platform.getForegroundDownloadState();
+    expect(state.state, ForegroundDownloadState.paused);
+    expect(state.sessionId, 7);
+    expect(state.progress, 0.5);
   });
 }

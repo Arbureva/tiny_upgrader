@@ -1,4 +1,5 @@
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+import 'foreground_download.dart';
 import 'upgrader_method_channel.dart';
 import 'install_result.dart';
 
@@ -53,6 +54,36 @@ abstract class TinyUpgraderPlatform extends PlatformInterface {
   Future<int> getAvailableStorageBytes(String directoryPath) {
     throw UnimplementedError(
       'getAvailableStorageBytes() has not been implemented.',
+    );
+  }
+
+  Stream<ForegroundDownloadEvent> get foregroundDownloadEvents {
+    throw UnimplementedError(
+      'foregroundDownloadEvents has not been implemented.',
+    );
+  }
+
+  Future<void> startForegroundDownload(ForegroundDownloadRequest request) {
+    throw UnimplementedError(
+      'startForegroundDownload() has not been implemented.',
+    );
+  }
+
+  Future<void> pauseForegroundDownload() {
+    throw UnimplementedError(
+      'pauseForegroundDownload() has not been implemented.',
+    );
+  }
+
+  Future<void> cancelForegroundDownload({bool deleteFile = true}) {
+    throw UnimplementedError(
+      'cancelForegroundDownload() has not been implemented.',
+    );
+  }
+
+  Future<ForegroundDownloadEvent> getForegroundDownloadState() {
+    throw UnimplementedError(
+      'getForegroundDownloadState() has not been implemented.',
     );
   }
 }

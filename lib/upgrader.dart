@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -7,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:tiny_upgrader/dialog.dart';
 import 'package:tiny_upgrader/download_exception.dart';
 import 'package:tiny_upgrader/file_hash.dart';
+import 'package:tiny_upgrader/foreground_download.dart';
 import 'package:tiny_upgrader/forced_update_page.dart';
 import 'package:tiny_upgrader/install_result.dart';
 import 'package:tiny_upgrader/oss_config.dart';
@@ -120,7 +122,7 @@ class TinyUpgrader {
   UpdateInfo? _updateInfo;
   String? _savePath;
   Future<UpdateCheckResult>? _checkInProgress;
-  Future<void>? _downloadOperation;
+  StreamSubscription<ForegroundDownloadEvent>? _downloadEventsSubscription;
   int _sessionSequence = 0;
   int _checkSequence = 0;
   int? _activeDownloadSession;
@@ -248,6 +250,7 @@ class TinyUpgrader {
     }
 
     inst._initialized = true;
+    inst._bindForegroundDownloadEvents();
     inst._emit(UpgraderEventType.init, 'TinyUpgrader 初始化完成', {
       'isDebug': isDebug,
       'enableLog': enableLog,
@@ -541,27 +544,88 @@ class TinyUpgrader {
       return;
     }
 
-    // Wait until a cancelled writer releases the file before resuming.
-    final previousOperation = _downloadOperation;
-    if (previousOperation != null) {
-      await previousOperation;
-    }
-
     final session = ++_sessionSequence;
     _activeDownloadSession = session;
-    _lastProgressAt = null;
-    _lastProgressPercent = -1;
     statusNotifier.value = DownloadStatus.downloading;
-    _cancelToken = CancelToken();
+    progressNotifier.value = 0.0;
 
-    late final Future<void> operation;
-    operation = _doStartDownload(0, session).whenComplete(() {
-      if (identical(_downloadOperation, operation)) {
-        _downloadOperation = null;
+    final latest = _updateInfo!.latestVersion!;
+    try {
+      final tempDir = await getTemporaryDirectory();
+      if (!_isActiveSession(session)) return;
+
+      final fileName = _buildSafeApkFileName(latest);
+      _savePath = '${tempDir.path}${Platform.pathSeparator}$fileName';
+      await _cleanOldApkFiles(tempDir, _savePath!);
+      if (!_isActiveSession(session)) return;
+
+      final file = File(_savePath!);
+      final existingLength = await file.exists() ? await file.length() : 0;
+      if (latest.apkSize > 0 && existingLength < latest.apkSize) {
+        final availableBytes = await TinyUpgraderPlatform.instance
+            .getAvailableStorageBytes(tempDir.path);
+        final requiredBytes =
+            (latest.apkSize - existingLength) +
+            latest.apkSize +
+            _minFreeSpaceMarginBytes;
+        if (availableBytes < requiredBytes) {
+          final error = InsufficientStorageException(
+            availableBytes: availableBytes,
+            requiredBytes: requiredBytes,
+          );
+          statusNotifier.value = DownloadStatus.error;
+          _emit(UpgraderEventType.downloadError, '存储空间不足，无法下载更新', {
+            'sessionId': session,
+            'availableBytes': availableBytes,
+            'requiredBytes': requiredBytes,
+          });
+          _safeErrorCallback(error);
+          return;
+        }
       }
-    });
-    _downloadOperation = operation;
-    await operation;
+
+      final headers = <String, String>{};
+      final downloadUrl = _resolveDownloadUrl(latest.downloadUrl);
+      if (_ossConfig != null && !_ossConfig!.isPublicRead) {
+        headers.addAll(
+          OssSigner.generateHeaders(
+            config: _ossConfig!,
+            downloadUrl: downloadUrl,
+          ),
+        );
+      }
+
+      _emit(UpgraderEventType.downloadStart, '启动 Android 前台下载服务', {
+        'sessionId': session,
+        'fileName': fileName,
+        'downloadUrl': _redactUrl(downloadUrl),
+        'apkSize': latest.apkSize,
+        'version': latest.version,
+        'buildVersion': latest.buildVersion,
+      });
+      await TinyUpgraderPlatform.instance.startForegroundDownload(
+        ForegroundDownloadRequest(
+          sessionId: session,
+          url: downloadUrl,
+          savePath: _savePath!,
+          headers: headers,
+          expectedSize: latest.apkSize,
+          expectedHash: latest.apkHashCode,
+          hashAlgorithm: latest.apkHashAlgorithm.name,
+          maxNetworkRetryCount: _maxNetworkRetryCount,
+          maxValidationRetryCount: _maxValidationRetryCount,
+          minFreeSpaceMarginBytes: _minFreeSpaceMarginBytes,
+        ),
+      );
+    } catch (error) {
+      if (!_isActiveSession(session)) return;
+      statusNotifier.value = DownloadStatus.error;
+      _emit(UpgraderEventType.downloadError, '无法启动 Android 前台下载服务', {
+        'sessionId': session,
+        'error': error.toString(),
+      });
+      _safeErrorCallback(error);
+    }
   }
 
   Future<void> _doStartDownload(
@@ -856,8 +920,16 @@ class TinyUpgrader {
     _ensureInitialized();
     if (statusNotifier.value == DownloadStatus.downloading) {
       _emit(UpgraderEventType.log, '用户请求暂停下载');
-      _cancelToken?.cancel();
       statusNotifier.value = DownloadStatus.paused;
+      unawaited(
+        TinyUpgraderPlatform.instance.pauseForegroundDownload().catchError((
+          Object error,
+        ) {
+          if (_isDebugging) {
+            debugPrint('[TinyUpgrader] pause foreground download: $error');
+          }
+        }),
+      );
     }
   }
 
@@ -917,8 +989,15 @@ class TinyUpgrader {
     _emit(UpgraderEventType.log, '重置所有状态');
     _activeDownloadSession = null;
     _sessionSequence++;
-    _cancelToken?.cancel();
-    _cancelToken = null;
+    unawaited(
+      TinyUpgraderPlatform.instance.cancelForegroundDownload().catchError((
+        Object error,
+      ) {
+        if (_isDebugging) {
+          debugPrint('[TinyUpgrader] cancel foreground download: $error');
+        }
+      }),
+    );
     _updateInfo = null;
     _savePath = null;
     _presentedVersionKey = null;
@@ -927,6 +1006,116 @@ class TinyUpgrader {
   }
 
   // ========== 私有方法 ==========
+
+  void _bindForegroundDownloadEvents() {
+    _downloadEventsSubscription ??= TinyUpgraderPlatform
+        .instance
+        .foregroundDownloadEvents
+        .listen(_handleForegroundDownloadEvent);
+    unawaited(
+      TinyUpgraderPlatform.instance
+          .getForegroundDownloadState()
+          .then(_handleForegroundDownloadEvent)
+          .catchError((Object error) {
+            if (_isDebugging) {
+              debugPrint('[TinyUpgrader] restore foreground download: $error');
+            }
+          }),
+    );
+  }
+
+  void _handleForegroundDownloadEvent(ForegroundDownloadEvent event) {
+    final session = event.sessionId;
+    if (session == null) return;
+
+    if (_activeDownloadSession == null &&
+        event.state != ForegroundDownloadState.none) {
+      _activeDownloadSession = session;
+      if (session > _sessionSequence) _sessionSequence = session;
+    }
+    if (_activeDownloadSession != session) return;
+    if (event.savePath != null) _savePath = event.savePath;
+
+    if (event.progress != null) {
+      progressNotifier.value = event.progress!;
+    }
+
+    switch (event.type) {
+      case ForegroundDownloadEventType.progress:
+        statusNotifier.value = DownloadStatus.downloading;
+        _emit(UpgraderEventType.downloadProgress, '前台服务下载进度', {
+          'sessionId': session,
+          'currentTotal': event.downloadedBytes,
+          'totalSize': event.totalBytes,
+          'progress': event.progress,
+        });
+      case ForegroundDownloadEventType.retry:
+        statusNotifier.value = DownloadStatus.downloading;
+        _emit(UpgraderEventType.downloadRetry, '前台服务正在重试下载', {
+          'sessionId': session,
+          'code': event.code,
+          'networkRetryCount': event.networkRetryCount,
+          'validationRetryCount': event.validationRetryCount,
+        });
+      case ForegroundDownloadEventType.rangeReset:
+        statusNotifier.value = DownloadStatus.downloading;
+        progressNotifier.value = 0.0;
+        _emit(UpgraderEventType.downloadConflict, '服务端忽略 Range，已从头下载', {
+          'sessionId': session,
+        });
+      case ForegroundDownloadEventType.validation:
+        _emit(UpgraderEventType.validationStart, '前台服务开始校验 APK', {
+          'sessionId': session,
+        });
+      case ForegroundDownloadEventType.paused:
+        statusNotifier.value = DownloadStatus.paused;
+        _emit(UpgraderEventType.downloadPaused, '前台下载已暂停', {
+          'sessionId': session,
+          'progress': event.progress,
+          'code': event.code,
+        });
+      case ForegroundDownloadEventType.finished:
+        statusNotifier.value = DownloadStatus.finished;
+        progressNotifier.value = 1.0;
+        _emit(UpgraderEventType.validationSuccess, 'APK 大小、文件头和摘要校验通过', {
+          'sessionId': session,
+        });
+        _emit(UpgraderEventType.downloadComplete, '前台下载完成', {
+          'sessionId': session,
+          'fileName': event.savePath?.split(Platform.pathSeparator).last,
+        });
+      case ForegroundDownloadEventType.error:
+        statusNotifier.value = DownloadStatus.error;
+        _emit(UpgraderEventType.downloadError, 'Android 前台下载失败', {
+          'sessionId': session,
+          'code': event.code,
+          'message': event.message,
+        });
+        _safeErrorCallback(
+          StateError(
+            '${event.code ?? "DOWNLOAD_ERROR"}: ${event.message ?? ""}',
+          ),
+        );
+      case ForegroundDownloadEventType.cancelled:
+        _activeDownloadSession = null;
+        statusNotifier.value = DownloadStatus.none;
+        progressNotifier.value = 0.0;
+      case ForegroundDownloadEventType.state:
+        switch (event.state) {
+          case ForegroundDownloadState.none:
+            statusNotifier.value = DownloadStatus.none;
+          case ForegroundDownloadState.downloading:
+            statusNotifier.value = DownloadStatus.downloading;
+          case ForegroundDownloadState.paused:
+            statusNotifier.value = DownloadStatus.paused;
+          case ForegroundDownloadState.finished:
+            statusNotifier.value = DownloadStatus.finished;
+            progressNotifier.value = 1.0;
+          case ForegroundDownloadState.error:
+            statusNotifier.value = DownloadStatus.error;
+        }
+    }
+  }
 
   /// 默认的更新判断逻辑
   bool _defaultShouldUpdate(VersionInfo newVersion, PackageInfo packageInfo) {
@@ -1110,6 +1299,21 @@ class TinyUpgrader {
     final uri = Uri.tryParse(value);
     if (uri == null || !uri.hasQuery) return value;
     return uri.replace(query: null).toString();
+  }
+
+  String _resolveDownloadUrl(String value) {
+    final uri = Uri.tryParse(value);
+    if (uri == null) {
+      throw FormatException('Invalid APK download URL: $value');
+    }
+    if (uri.hasScheme) return uri.toString();
+    final baseUrl = _dio.options.baseUrl;
+    if (baseUrl.isEmpty) {
+      throw FormatException(
+        'A relative APK download URL requires TinyUpgrader.init(baseUrl: ...).',
+      );
+    }
+    return Uri.parse(baseUrl).resolveUri(uri).toString();
   }
 
   void _safeCallback(void Function() callback) {

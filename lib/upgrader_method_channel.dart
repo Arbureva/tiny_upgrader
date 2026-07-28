@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'foreground_download.dart';
 import 'upgrader_platform_interface.dart';
 import 'install_result.dart';
 
@@ -10,6 +13,9 @@ class MethodChannelTinyUpgrader extends TinyUpgraderPlatform {
   /// 用于与原生平台交互的方法通道
   @visibleForTesting
   final methodChannel = const MethodChannel('tiny_upgrader');
+  final StreamController<ForegroundDownloadEvent> _downloadEvents =
+      StreamController<ForegroundDownloadEvent>.broadcast();
+  bool _nativeHandlerInstalled = false;
 
   @override
   Future<String?> getPlatformVersion() async {
@@ -52,6 +58,58 @@ class MethodChannelTinyUpgrader extends TinyUpgraderPlatform {
           'directoryPath': directoryPath,
         }) ??
         0;
+  }
+
+  @override
+  Stream<ForegroundDownloadEvent> get foregroundDownloadEvents {
+    _ensureNativeHandler();
+    return _downloadEvents.stream;
+  }
+
+  @override
+  Future<void> startForegroundDownload(ForegroundDownloadRequest request) {
+    _ensureNativeHandler();
+    return methodChannel.invokeMethod<void>(
+      'startForegroundDownload',
+      request.toMap(),
+    );
+  }
+
+  @override
+  Future<void> pauseForegroundDownload() {
+    return methodChannel.invokeMethod<void>('pauseForegroundDownload');
+  }
+
+  @override
+  Future<void> cancelForegroundDownload({bool deleteFile = true}) {
+    return methodChannel.invokeMethod<void>('cancelForegroundDownload', {
+      'deleteFile': deleteFile,
+    });
+  }
+
+  @override
+  Future<ForegroundDownloadEvent> getForegroundDownloadState() async {
+    _ensureNativeHandler();
+    final result = await methodChannel.invokeMapMethod<Object?, Object?>(
+      'getForegroundDownloadState',
+    );
+    return ForegroundDownloadEvent.fromMap(result ?? const {});
+  }
+
+  Future<void> _handleNativeCall(MethodCall call) async {
+    if (call.method != 'foregroundDownloadEvent') return;
+    final arguments = call.arguments;
+    if (arguments is Map) {
+      _downloadEvents.add(
+        ForegroundDownloadEvent.fromMap(Map<Object?, Object?>.from(arguments)),
+      );
+    }
+  }
+
+  void _ensureNativeHandler() {
+    if (_nativeHandlerInstalled) return;
+    methodChannel.setMethodCallHandler(_handleNativeCall);
+    _nativeHandlerInstalled = true;
   }
 
   InstallStatus _parseInstallStatus(String? value) {
